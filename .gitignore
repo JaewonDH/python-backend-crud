@@ -1,0 +1,9 @@
+CLAUDE.md
+Users/
+.CLAUDE/
+.venv
+uv.lock
+__pycache__/
+*.py[cod]
+*$py.class
+README.md
