@@ -1,8 +1,9 @@
 """
 인증/권한 의존성 함수
 - X-User-ID 헤더 기반 인증
-- TB_AGENT_SYSTEM_ACCESS 기반 시스템 접근 권한 확인
-- TB_USER_PERMISSION 기반 Admin 권한 확인
+- TB_USER_EXT_PERMISSION 기반 권한 확인
+  · AGENT_SYSTEM_USER  → 시스템 접근 권한 (일반 사용자)
+  · AGENT_SYSTEM_ADMIN → 관리자 권한
 """
 from fastapi import Depends, Header
 from sqlalchemy import and_, func, select
@@ -26,17 +27,22 @@ async def require_system_access(
     db: AsyncSession = Depends(get_async_db),
 ) -> str:
     """
-    TB_AGENT_SYSTEM_ACCESS.GRANT_YN='Y' 인 유효 레코드 확인 (없으면 403)
+    AGENT_SYSTEM_USER 또는 AGENT_SYSTEM_ADMIN 권한 보유 여부 확인 (없으면 403)
     순환 import 방지를 위해 함수 내 지연 import 사용.
     """
-    from app.domains.user.models import AgentSystemAccess
+    from app.domains.user.models import ExtPermission, UserExtPermission
 
-    stmt = select(AgentSystemAccess).where(
-        and_(
-            AgentSystemAccess.user_id == user_id,
-            AgentSystemAccess.grant_yn == "Y",
-            (AgentSystemAccess.expire_dt.is_(None))
-            | (AgentSystemAccess.expire_dt > func.sysdate()),
+    stmt = (
+        select(UserExtPermission)
+        .join(ExtPermission, UserExtPermission.ext_permission_id == ExtPermission.ext_permission_id)
+        .where(
+            and_(
+                UserExtPermission.user_id == user_id,
+                ExtPermission.permission_cd.in_(["AGENT_SYSTEM_USER", "AGENT_SYSTEM_ADMIN"]),
+                UserExtPermission.grant_yn == "Y",
+                (UserExtPermission.expire_dt.is_(None))
+                | (UserExtPermission.expire_dt > func.sysdate()),
+            )
         )
     )
     result = await db.execute(stmt)
@@ -50,16 +56,22 @@ async def require_admin(
     db: AsyncSession = Depends(get_async_db),
 ) -> str:
     """
-    TB_USER_PERMISSION.PERMISSION_CD='ADMIN' AND USE_YN='Y' 확인 (없으면 403)
+    AGENT_SYSTEM_ADMIN 권한 보유 여부 확인 (없으면 403)
     순환 import 방지를 위해 함수 내 지연 import 사용.
     """
-    from app.domains.user.models import UserPermission
+    from app.domains.user.models import ExtPermission, UserExtPermission
 
-    stmt = select(UserPermission).where(
-        and_(
-            UserPermission.user_id == user_id,
-            UserPermission.permission_cd == "ADMIN",
-            UserPermission.use_yn == "Y",
+    stmt = (
+        select(UserExtPermission)
+        .join(ExtPermission, UserExtPermission.ext_permission_id == ExtPermission.ext_permission_id)
+        .where(
+            and_(
+                UserExtPermission.user_id == user_id,
+                ExtPermission.permission_cd == "AGENT_SYSTEM_ADMIN",
+                UserExtPermission.grant_yn == "Y",
+                (UserExtPermission.expire_dt.is_(None))
+                | (UserExtPermission.expire_dt > func.sysdate()),
+            )
         )
     )
     result = await db.execute(stmt)

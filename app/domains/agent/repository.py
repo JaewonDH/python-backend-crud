@@ -9,7 +9,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.domains.agent.models import Agent, AgentConsent, AgentHistory, AgentMember
+from app.domains.agent.models import Agent, AgentConsent, AgentConsentValue, AgentHistory, AgentMember
 
 
 class AgentRepository:
@@ -19,11 +19,13 @@ class AgentRepository:
         self.db = db
 
     async def find_by_id(self, agent_id: str) -> Agent | None:
-        """소프트 삭제되지 않은 Agent 조회 (동의 내역 포함)"""
+        """소프트 삭제되지 않은 Agent 조회 (동의 내역 + TEXT 입력값 포함)"""
         result = await self.db.execute(
             select(Agent)
             .where(and_(Agent.agent_id == agent_id, Agent.del_yn == "N"))
-            .options(selectinload(Agent.consents))
+            .options(
+                selectinload(Agent.consents).selectinload(AgentConsent.text_values)
+            )
         )
         return result.scalar_one_or_none()
 
@@ -149,6 +151,7 @@ class AgentConsentRepository:
             self.db.add(c)
         await self.db.flush()
         return consents
+
 
 
 class AgentHistoryRepository:

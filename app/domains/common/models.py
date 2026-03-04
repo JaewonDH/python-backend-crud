@@ -12,7 +12,7 @@ agent 도메인은 TB_AGENT_CONSENT를 통해 consent_item_id(FK)만 참조.
 """
 from datetime import datetime
 
-from sqlalchemy import CHAR, Column, DateTime, Integer, String, func
+from sqlalchemy import CHAR, Column, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import relationship
 
 from app.models.base import Base, generate_uuid
@@ -38,7 +38,7 @@ class CodeDetail(Base):
     """TB_CODE_DETAIL: 공통 코드 상세 (UI 드롭다운·라벨에 직접 사용)"""
     __tablename__ = "TB_CODE_DETAIL"
 
-    group_cd: str = Column("GROUP_CD", String(50), primary_key=True, nullable=False)
+    group_cd: str = Column("GROUP_CD", String(50), ForeignKey("TB_CODE_GROUP.GROUP_CD"), primary_key=True, nullable=False)
     code_val: str = Column("CODE_VAL", String(50), primary_key=True, nullable=False)
     code_nm: str = Column("CODE_NM", String(100), nullable=False)
     code_desc: str | None = Column("CODE_DESC", String(500), nullable=True)
@@ -54,9 +54,13 @@ class CodeDetail(Base):
 
 class ConsentItem(Base):
     """
-    TB_CONSENT_ITEM: 개인정보 동의 항목 마스터 (10개)
+    TB_CONSENT_ITEM: 개인정보 동의 항목 마스터
     ← agent 도메인에서 common 도메인으로 이전 (경계 수정)
     Agent 신청 프로세스와 독립된 공통 마스터 데이터.
+
+    ITEM_TYPE_CD:
+      'YN'   — Y/N 체크박스 선택 (기존 방식)
+      'TEXT' — 사용자 텍스트 입력, 여러 개 저장 가능 (TB_AGENT_CONSENT_VALUE)
     """
     __tablename__ = "TB_CONSENT_ITEM"
 
@@ -66,6 +70,8 @@ class ConsentItem(Base):
     item_nm: str = Column("ITEM_NM", String(200), nullable=False)
     item_desc: str | None = Column("ITEM_DESC", String(1000), nullable=True)
     sort_order: int = Column("SORT_ORDER", Integer, nullable=False)
+    # 항목 유형: YN(Y/N 선택) / TEXT(텍스트 다중 입력)
+    item_type_cd: str = Column("ITEM_TYPE_CD", String(10), nullable=False, server_default="YN")
     # CHECK 제약: 이진 플래그
     required_yn: str = Column("REQUIRED_YN", CHAR(1), nullable=False, server_default="Y")
     use_yn: str = Column("USE_YN", CHAR(1), nullable=False, server_default="Y")

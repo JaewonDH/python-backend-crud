@@ -1,7 +1,7 @@
 """Agent 도메인 API 테스트"""
 import pytest
 from httpx import AsyncClient
-from tests.conftest import USER_ID, DEV_ID, TEST_RUN_ID
+from tests.conftest import USER_ID, DEV_ID, TEST_RUN_ID, build_consent_payload
 
 
 class TestAgentCreate:
@@ -9,18 +9,22 @@ class TestAgentCreate:
         self,
         client: AsyncClient,
         user_headers: dict,
-        consent_item_ids: list[str],
+        consent_items: list[dict],
     ):
-        """POST /api/agents/ - Agent 카드 신청"""
+        """POST /api/agents/ - Agent 카드 신청 (신규 필드 + TEXT 타입 동의항목 포함)"""
         resp = await client.post(
             "/api/agents/",
             json={
                 "agent_nm": f"Create Test {TEST_RUN_ID}",
                 "agent_desc": "생성 테스트",
-                "consents": [
-                    {"consent_item_id": cid, "agree_yn": "Y"}
-                    for cid in consent_item_ids
-                ],
+                "task_no": "PRJ-2024-001",
+                "team_nm": "AI팀",
+                "charge_nm": "홍길동",
+                "emp_no": "EMP001",
+                "emp_nm": "홍길동",
+                "group1_cd": "GRP1_A",
+                "group2_cd": "GRP2_X",
+                "consents": build_consent_payload(consent_items),
             },
             headers=user_headers,
         )
@@ -30,31 +34,38 @@ class TestAgentCreate:
         assert data["agent_status_cd"] == "PENDING"
         assert data["owner_user_id"] == USER_ID
         assert data["del_yn"] == "N"
+        assert data["task_no"] == "PRJ-2024-001"
+        assert data["team_nm"] == "AI팀"
+        assert data["charge_nm"] == "홍길동"
+        assert data["emp_no"] == "EMP001"
+        assert data["emp_nm"] == "홍길동"
+        assert data["group1_cd"] == "GRP1_A"
+        assert data["group2_cd"] == "GRP2_X"
         assert "agent_id" in data
         assert "reg_dt" in data
 
     async def test_create_agent_no_auth(
-        self, client: AsyncClient, consent_item_ids: list[str]
+        self, client: AsyncClient, consent_items: list[dict]
     ):
         """POST /api/agents/ - 인증 헤더 없이 → 401"""
         resp = await client.post(
             "/api/agents/",
             json={
                 "agent_nm": "No Auth",
-                "consents": [{"consent_item_id": consent_item_ids[0], "agree_yn": "Y"}],
+                "consents": [build_consent_payload(consent_items)[0]],
             },
         )
         assert resp.status_code == 401
 
     async def test_create_agent_no_system_access(
-        self, client: AsyncClient, consent_item_ids: list[str]
+        self, client: AsyncClient, consent_items: list[dict]
     ):
         """POST /api/agents/ - 시스템 접근 권한 없는 사용자 → 403"""
         resp = await client.post(
             "/api/agents/",
             json={
                 "agent_nm": "No Access",
-                "consents": [{"consent_item_id": consent_item_ids[0], "agree_yn": "Y"}],
+                "consents": [build_consent_payload(consent_items)[0]],
             },
             headers={"X-User-ID": "unknown-user-no-access"},
         )
@@ -102,16 +113,27 @@ class TestAgentList:
 
 class TestAgentDetail:
     async def test_get_agent_detail(
-        self, client: AsyncClient, user_headers: dict, created_agent: dict
+        self, client: AsyncClient, user_headers: dict, created_agent: dict, consent_items: list[dict]
     ):
-        """GET /api/agents/{agent_id} - Agent 상세 조회"""
+        """GET /api/agents/{agent_id} - Agent 상세 조회 (TEXT 타입 입력값 포함)"""
         agent_id = created_agent["agent_id"]
         resp = await client.get(f"/api/agents/{agent_id}", headers=user_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["agent_id"] == agent_id
         assert "consents" in data
-        assert len(data["consents"]) == 10  # 동의항목 10개
+        assert len(data["consents"]) == len(consent_items)  # 신청 시 전달한 동의항목 수와 일치
+        # TEXT 타입 항목의 입력값 검증
+        text_item_ids = {c["consent_item_id"] for c in consent_items if c.get("item_type_cd") == "TEXT"}
+        for consent in data["consents"]:
+            if consent["consent_item_id"] in text_item_ids:
+                assert consent["agree_yn"] is None
+                assert len(consent["text_values"]) > 0
+            else:
+                assert consent["agree_yn"] in ("Y", "N")
+        # 그룹 단일 선택 검증
+        assert data["group1_cd"] is not None
+        assert data["group2_cd"] is not None
 
     async def test_get_agent_not_found(
         self, client: AsyncClient, user_headers: dict

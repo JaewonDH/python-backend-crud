@@ -128,6 +128,13 @@ def upgrade() -> None:
             AGENT_ID         VARCHAR2(36)    NOT NULL,
             AGENT_NM         VARCHAR2(200)   NOT NULL,
             AGENT_DESC       CLOB,
+            TASK_NO          VARCHAR2(100),
+            TEAM_NM          VARCHAR2(200),
+            CHARGE_NM        VARCHAR2(200),
+            EMP_NO           VARCHAR2(50),
+            EMP_NM           VARCHAR2(100),
+            GROUP1_CD        VARCHAR2(50),
+            GROUP2_CD        VARCHAR2(50),
             AGENT_STATUS_CD  VARCHAR2(20)    DEFAULT 'PENDING' NOT NULL
                                CONSTRAINT CK_AGENT_STATUS
                                CHECK (AGENT_STATUS_CD IN ('PENDING','REJECTED','DEV','OPEN','DELETE_PENDING')),
@@ -146,6 +153,13 @@ def upgrade() -> None:
     """)
     op.execute("COMMENT ON TABLE TB_AGENT IS 'Agent 카드 (핵심)'")
     op.execute("COMMENT ON COLUMN TB_AGENT.AGENT_ID IS 'Agent ID (PK) - UUID'")
+    op.execute("COMMENT ON COLUMN TB_AGENT.TASK_NO IS '과제번호'")
+    op.execute("COMMENT ON COLUMN TB_AGENT.TEAM_NM IS '팀이름'")
+    op.execute("COMMENT ON COLUMN TB_AGENT.CHARGE_NM IS '담당'")
+    op.execute("COMMENT ON COLUMN TB_AGENT.EMP_NO IS '사번'")
+    op.execute("COMMENT ON COLUMN TB_AGENT.EMP_NM IS '이름'")
+    op.execute("COMMENT ON COLUMN TB_AGENT.GROUP1_CD IS '[CODE_TABLE] 그룹1 단일선택 코드 - TB_CODE_DETAIL(GROUP1_CD) 참조'")
+    op.execute("COMMENT ON COLUMN TB_AGENT.GROUP2_CD IS '[CODE_TABLE] 그룹2 단일선택 코드 - TB_CODE_DETAIL(GROUP2_CD) 참조'")
     op.execute("COMMENT ON COLUMN TB_AGENT.AGENT_STATUS_CD IS '[CODE_TABLE] 상태 코드 - TB_CODE_DETAIL(AGENT_STATUS_CD) 참조'")
     op.execute("COMMENT ON COLUMN TB_AGENT.DEL_YN IS '[CHECK] 소프트 삭제 여부 Y/N'")
 
@@ -180,6 +194,8 @@ def upgrade() -> None:
             ITEM_NM          VARCHAR2(200)   NOT NULL,
             ITEM_DESC        VARCHAR2(1000),
             SORT_ORDER       NUMBER          NOT NULL,
+            ITEM_TYPE_CD     VARCHAR2(10)    DEFAULT 'YN' NOT NULL
+                               CONSTRAINT CK_CONSENT_TYPE CHECK (ITEM_TYPE_CD IN ('YN','TEXT')),
             REQUIRED_YN      CHAR(1)         DEFAULT 'Y' NOT NULL
                                CONSTRAINT CK_CONSENT_REQ CHECK (REQUIRED_YN IN ('Y','N')),
             USE_YN           CHAR(1)         DEFAULT 'Y' NOT NULL
@@ -188,8 +204,9 @@ def upgrade() -> None:
             CONSTRAINT PK_CONSENT_ITEM PRIMARY KEY (CONSENT_ITEM_ID)
         )
     """)
-    op.execute("COMMENT ON TABLE TB_CONSENT_ITEM IS '개인정보 동의 항목 마스터 (10개)'")
+    op.execute("COMMENT ON TABLE TB_CONSENT_ITEM IS '개인정보 동의 항목 마스터'")
     op.execute("COMMENT ON COLUMN TB_CONSENT_ITEM.CONSENT_ITEM_ID IS '동의항목 ID (PK) - UUID'")
+    op.execute("COMMENT ON COLUMN TB_CONSENT_ITEM.ITEM_TYPE_CD IS '[CHECK] 항목 유형 YN(Y/N 선택) / TEXT(텍스트 다중 입력)'")
 
     # ── TB_AGENT_CONSENT ─────────────────────────────────────
     op.execute("""
@@ -197,8 +214,8 @@ def upgrade() -> None:
             AGENT_CONSENT_ID  VARCHAR2(36)    NOT NULL,
             AGENT_ID          VARCHAR2(36)    NOT NULL,
             CONSENT_ITEM_ID   VARCHAR2(36)    NOT NULL,
-            AGREE_YN          CHAR(1)         NOT NULL
-                                CONSTRAINT CK_AGREE_YN CHECK (AGREE_YN IN ('Y','N')),
+            AGREE_YN          CHAR(1)
+                                CONSTRAINT CK_AGREE_YN CHECK (AGREE_YN IS NULL OR AGREE_YN IN ('Y','N')),
             AGREE_DT          DATE            DEFAULT SYSDATE NOT NULL,
             USER_ID           VARCHAR2(50)    NOT NULL,
             CONSTRAINT PK_AGENT_CONSENT PRIMARY KEY (AGENT_CONSENT_ID),
@@ -210,6 +227,24 @@ def upgrade() -> None:
     """)
     op.execute("COMMENT ON TABLE TB_AGENT_CONSENT IS 'Agent 신청 동의 내역'")
     op.execute("COMMENT ON COLUMN TB_AGENT_CONSENT.AGENT_CONSENT_ID IS '동의 ID (PK) - UUID'")
+    op.execute("COMMENT ON COLUMN TB_AGENT_CONSENT.AGREE_YN IS 'YN 타입만 사용 (TEXT 타입은 NULL, 값은 TB_AGENT_CONSENT_VALUE 참조)'")
+
+    # ── TB_AGENT_CONSENT_VALUE ────────────────────────────────
+    op.execute("""
+        CREATE TABLE TB_AGENT_CONSENT_VALUE (
+            CONSENT_VALUE_ID  VARCHAR2(36)    NOT NULL,
+            AGENT_CONSENT_ID  VARCHAR2(36)    NOT NULL,
+            TEXT_VALUE        VARCHAR2(2000)  NOT NULL,
+            SORT_ORDER        NUMBER          NOT NULL,
+            REG_DT            DATE            DEFAULT SYSDATE NOT NULL,
+            CONSTRAINT PK_CONSENT_VALUE    PRIMARY KEY (CONSENT_VALUE_ID),
+            CONSTRAINT FK_CVAL_CONSENT     FOREIGN KEY (AGENT_CONSENT_ID) REFERENCES TB_AGENT_CONSENT(AGENT_CONSENT_ID)
+        )
+    """)
+    op.execute("COMMENT ON TABLE TB_AGENT_CONSENT_VALUE IS 'TEXT 타입 동의 항목의 사용자 입력값 (여러 개 저장)'")
+    op.execute("COMMENT ON COLUMN TB_AGENT_CONSENT_VALUE.CONSENT_VALUE_ID IS '입력값 ID (PK) - UUID'")
+    op.execute("COMMENT ON COLUMN TB_AGENT_CONSENT_VALUE.TEXT_VALUE IS '사용자 입력 텍스트'")
+    op.execute("COMMENT ON COLUMN TB_AGENT_CONSENT_VALUE.SORT_ORDER IS '입력 순서'")
 
     # ── TB_APPROVAL_REQUEST ──────────────────────────────────
     op.execute("""
@@ -271,6 +306,7 @@ def upgrade() -> None:
     op.execute("CREATE INDEX IDX_AGENT_MEMBER_USER  ON TB_AGENT_MEMBER         (USER_ID, USE_YN)")
     op.execute("CREATE INDEX IDX_AGENT_MEMBER_AGENT ON TB_AGENT_MEMBER         (AGENT_ID, USE_YN)")
     op.execute("CREATE INDEX IDX_CONSENT_AGENT      ON TB_AGENT_CONSENT        (AGENT_ID)")
+    op.execute("CREATE INDEX IDX_CONSENT_VALUE      ON TB_AGENT_CONSENT_VALUE  (AGENT_CONSENT_ID)")
     op.execute("CREATE INDEX IDX_APPROVAL_STATUS    ON TB_APPROVAL_REQUEST     (REQ_STATUS_CD, REQ_TYPE_CD)")
     op.execute("CREATE INDEX IDX_APPROVAL_AGENT     ON TB_APPROVAL_REQUEST     (AGENT_ID, REQ_STATUS_CD)")
     op.execute("CREATE INDEX IDX_CODE_DETAIL_USE    ON TB_CODE_DETAIL          (GROUP_CD, USE_YN)")
@@ -315,25 +351,47 @@ def upgrade() -> None:
     op.execute("INSERT INTO TB_CODE_DETAIL (GROUP_CD,CODE_VAL,CODE_NM,SORT_ORDER,REG_USER_ID) VALUES ('REQ_STATUS_CD','APPROVED','승인',2,'SYSTEM')")
     op.execute("INSERT INTO TB_CODE_DETAIL (GROUP_CD,CODE_VAL,CODE_NM,SORT_ORDER,REG_USER_ID) VALUES ('REQ_STATUS_CD','REJECTED','반려',3,'SYSTEM')")
 
+    # ── GROUP1_CD / GROUP2_CD 코드 그룹 및 선택 옵션 ─────────
+    op.execute("""
+        INSERT INTO TB_CODE_GROUP (GROUP_CD, GROUP_NM, GROUP_DESC, REG_USER_ID)
+        VALUES ('GROUP1_CD', '그룹1', 'Agent 신청 시 그룹1 선택 옵션', 'SYSTEM')
+    """)
+    op.execute("""
+        INSERT INTO TB_CODE_GROUP (GROUP_CD, GROUP_NM, GROUP_DESC, REG_USER_ID)
+        VALUES ('GROUP2_CD', '그룹2', 'Agent 신청 시 그룹2 선택 옵션', 'SYSTEM')
+    """)
+
+    # GROUP1_CD 선택 옵션
+    op.execute("INSERT INTO TB_CODE_DETAIL (GROUP_CD,CODE_VAL,CODE_NM,SORT_ORDER,REG_USER_ID) VALUES ('GROUP1_CD','GRP1_A','그룹A',1,'SYSTEM')")
+    op.execute("INSERT INTO TB_CODE_DETAIL (GROUP_CD,CODE_VAL,CODE_NM,SORT_ORDER,REG_USER_ID) VALUES ('GROUP1_CD','GRP1_B','그룹B',2,'SYSTEM')")
+    op.execute("INSERT INTO TB_CODE_DETAIL (GROUP_CD,CODE_VAL,CODE_NM,SORT_ORDER,REG_USER_ID) VALUES ('GROUP1_CD','GRP1_C','그룹C',3,'SYSTEM')")
+
+    # GROUP2_CD 선택 옵션
+    op.execute("INSERT INTO TB_CODE_DETAIL (GROUP_CD,CODE_VAL,CODE_NM,SORT_ORDER,REG_USER_ID) VALUES ('GROUP2_CD','GRP2_X','유형X',1,'SYSTEM')")
+    op.execute("INSERT INTO TB_CODE_DETAIL (GROUP_CD,CODE_VAL,CODE_NM,SORT_ORDER,REG_USER_ID) VALUES ('GROUP2_CD','GRP2_Y','유형Y',2,'SYSTEM')")
+    op.execute("INSERT INTO TB_CODE_DETAIL (GROUP_CD,CODE_VAL,CODE_NM,SORT_ORDER,REG_USER_ID) VALUES ('GROUP2_CD','GRP2_Z','유형Z',3,'SYSTEM')")
+
     # ── 초기 동의 항목 데이터 (10개) ─────────────────────────
     import uuid
+    # (항목명, 설명, 순서, 항목유형)
+    # YN: Y/N 체크박스 선택 / TEXT: 사용자 텍스트 다중 입력
     consent_items = [
-        ("개인정보 수집·이용 동의", "성명, 이메일, 부서명 등 기본 정보 수집 동의", 1),
-        ("개인정보 제3자 제공 동의", "Agent 운영을 위한 관련 팀 정보 제공 동의", 2),
-        ("민감정보 처리 동의", "업무 관련 민감 정보 처리 동의", 3),
-        ("개인정보 국외 이전 동의", "해외 클라우드 서비스 이용 관련 정보 이전 동의", 4),
-        ("마케팅 활용 동의", "Agent 관련 마케팅 정보 수신 동의", 5),
-        ("서비스 개선을 위한 데이터 활용 동의", "서비스 품질 향상을 위한 데이터 분석 동의", 6),
-        ("로그 데이터 수집 동의", "Agent 사용 로그 수집 및 분석 동의", 7),
-        ("알림 서비스 이용 동의", "승인 상태 변경 등 시스템 알림 수신 동의", 8),
-        ("보안 정책 준수 서약", "사내 보안 정책 및 개인정보보호법 준수 서약", 9),
-        ("이용약관 동의", "Agent System 이용약관 전체 동의", 10),
+        ("개인정보 수집·이용 동의",           "성명, 이메일, 부서명 등 기본 정보 수집 동의",          1, "YN"),
+        ("개인정보 제3자 제공 동의",           "Agent 운영을 위한 관련 팀 정보 제공 동의",             2, "YN"),
+        ("민감정보 처리 동의",                 "업무 관련 민감 정보 처리 동의",                        3, "YN"),
+        ("개인정보 국외 이전 동의",            "해외 클라우드 서비스 이용 관련 정보 이전 동의",         4, "YN"),
+        ("마케팅 활용 동의",                   "Agent 관련 마케팅 정보 수신 동의",                     5, "YN"),
+        ("서비스 개선을 위한 데이터 활용 동의","서비스 품질 향상을 위한 데이터 분석 동의",              6, "YN"),
+        ("로그 데이터 수집 동의",              "Agent 사용 로그 수집 및 분석 동의",                    7, "YN"),
+        ("알림 서비스 이용 동의",              "승인 상태 변경 등 시스템 알림 수신 동의",               8, "YN"),
+        ("활용 목적 입력",                     "Agent를 활용하려는 목적을 자유롭게 작성 (여러 개 가능)", 9, "TEXT"),
+        ("이용약관 동의",                      "Agent System 이용약관 전체 동의",                      10, "YN"),
     ]
-    for nm, desc, order in consent_items:
+    for nm, desc, order, type_cd in consent_items:
         item_id = str(uuid.uuid4())
         op.execute(
-            f"INSERT INTO TB_CONSENT_ITEM (CONSENT_ITEM_ID,ITEM_NM,ITEM_DESC,SORT_ORDER,REQUIRED_YN,USE_YN) "
-            f"VALUES ('{item_id}','{nm}','{desc}',{order},'Y','Y')"
+            f"INSERT INTO TB_CONSENT_ITEM (CONSENT_ITEM_ID,ITEM_NM,ITEM_DESC,SORT_ORDER,ITEM_TYPE_CD,REQUIRED_YN,USE_YN) "
+            f"VALUES ('{item_id}','{nm}','{desc}',{order},'{type_cd}','Y','Y')"
         )
 
 
@@ -342,6 +400,7 @@ def downgrade() -> None:
     tables = [
         "TB_AGENT_HISTORY",
         "TB_APPROVAL_REQUEST",
+        "TB_AGENT_CONSENT_VALUE",
         "TB_AGENT_CONSENT",
         "TB_CONSENT_ITEM",
         "TB_AGENT_MEMBER",

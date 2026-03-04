@@ -2,7 +2,7 @@
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.user.models import AgentSystemAccess, UserPermission, UserSync
+from app.domains.user.models import ExtPermission, UserExtPermission, UserSync
 
 
 class UserSyncRepository:
@@ -23,51 +23,72 @@ class UserSyncRepository:
         return user
 
 
-class AgentSystemAccessRepository:
-    """TB_AGENT_SYSTEM_ACCESS CRUD"""
+class ExtPermissionRepository:
+    """TB_EXT_PERMISSION CRUD"""
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def find_active_by_user_id(self, user_id: str) -> AgentSystemAccess | None:
-        """유효한 접근 권한 조회 (만료되지 않은 건)"""
-        stmt = select(AgentSystemAccess).where(
-            and_(
-                AgentSystemAccess.user_id == user_id,
-                AgentSystemAccess.grant_yn == "Y",
-                (AgentSystemAccess.expire_dt.is_(None))
-                | (AgentSystemAccess.expire_dt > func.sysdate()),
+    async def find_by_code(self, permission_cd: str) -> ExtPermission | None:
+        result = await self.db.execute(
+            select(ExtPermission).where(
+                and_(ExtPermission.permission_cd == permission_cd, ExtPermission.use_yn == "Y")
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def find_all_active(self) -> list[ExtPermission]:
+        result = await self.db.execute(
+            select(ExtPermission).where(ExtPermission.use_yn == "Y")
+        )
+        return list(result.scalars().all())
+
+    async def save(self, perm: ExtPermission) -> ExtPermission:
+        self.db.add(perm)
+        await self.db.flush()
+        return perm
+
+
+class UserExtPermissionRepository:
+    """TB_USER_EXT_PERMISSION CRUD"""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def find_active_by_user_and_code(
+        self, user_id: str, permission_cd: str
+    ) -> UserExtPermission | None:
+        """특정 사용자의 특정 외부 권한 활성 여부 조회"""
+        stmt = (
+            select(UserExtPermission)
+            .join(ExtPermission, UserExtPermission.ext_permission_id == ExtPermission.ext_permission_id)
+            .where(
+                and_(
+                    UserExtPermission.user_id == user_id,
+                    ExtPermission.permission_cd == permission_cd,
+                    UserExtPermission.grant_yn == "Y",
+                    (UserExtPermission.expire_dt.is_(None))
+                    | (UserExtPermission.expire_dt > func.sysdate()),
+                )
             )
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def save(self, access: AgentSystemAccess) -> AgentSystemAccess:
-        self.db.add(access)
-        await self.db.flush()
-        return access
-
-
-class UserPermissionRepository:
-    """TB_USER_PERMISSION CRUD"""
-
-    def __init__(self, db: AsyncSession):
-        self.db = db
-
-    async def find_admin_by_user_id(self, user_id: str) -> UserPermission | None:
-        """Admin 권한 조회"""
+    async def find_by_user_and_ext_permission(
+        self, user_id: str, ext_permission_id: str
+    ) -> UserExtPermission | None:
         result = await self.db.execute(
-            select(UserPermission).where(
+            select(UserExtPermission).where(
                 and_(
-                    UserPermission.user_id == user_id,
-                    UserPermission.permission_cd == "ADMIN",
-                    UserPermission.use_yn == "Y",
+                    UserExtPermission.user_id == user_id,
+                    UserExtPermission.ext_permission_id == ext_permission_id,
                 )
             )
         )
         return result.scalar_one_or_none()
 
-    async def save(self, perm: UserPermission) -> UserPermission:
-        self.db.add(perm)
+    async def save(self, mapping: UserExtPermission) -> UserExtPermission:
+        self.db.add(mapping)
         await self.db.flush()
-        return perm
+        return mapping

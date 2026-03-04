@@ -4,7 +4,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import Column, Date, DateTime, String, Text, func
+from sqlalchemy import Column, Date, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import relationship
 
 from app.models.base import Base, generate_uuid
@@ -17,16 +17,16 @@ class ApprovalRequest(Base):
     approval_req_id: str = Column(
         "APPROVAL_REQ_ID", String(36), primary_key=True, default=generate_uuid
     )
-    agent_id: str = Column("AGENT_ID", String(36), nullable=False)
+    agent_id: str = Column("AGENT_ID", String(36), ForeignKey("TB_AGENT.AGENT_ID"), nullable=False)
     # 코드 테이블 참조: REQ_TYPE_CD — CREATE / DELETE
     req_type_cd: str = Column("REQ_TYPE_CD", String(20), nullable=False)
     # 코드 테이블 참조: REQ_STATUS_CD — PENDING / APPROVED / REJECTED
     req_status_cd: str = Column(
         "REQ_STATUS_CD", String(20), nullable=False, server_default="PENDING"
     )
-    req_user_id: str = Column("REQ_USER_ID", String(50), nullable=False)
+    req_user_id: str = Column("REQ_USER_ID", String(50), ForeignKey("TB_USER_SYNC.USER_ID"), nullable=False)
     req_dt: datetime = Column("REQ_DT", Date, nullable=False, server_default=func.sysdate())
-    process_user_id: str | None = Column("PROCESS_USER_ID", String(50), nullable=True)
+    process_user_id: str | None = Column("PROCESS_USER_ID", String(50), ForeignKey("TB_USER_SYNC.USER_ID"), nullable=True)
     process_dt: datetime | None = Column("PROCESS_DT", Date, nullable=True)
     reject_reason: str | None = Column("REJECT_REASON", Text, nullable=True)
     reg_dt: datetime = Column("REG_DT", DateTime, nullable=False, server_default=func.sysdate())

@@ -51,6 +51,7 @@ class ConsentItemCreate(BaseModel):
     item_nm: str
     item_desc: str | None = None
     sort_order: int
+    item_type_cd: str = "YN"    # YN(Y/N 선택) 또는 TEXT(텍스트 다중 입력)
     required_yn: str = "Y"
 
 
@@ -60,6 +61,7 @@ class ConsentItemResponse(BaseModel):
     item_nm: str
     item_desc: str | None
     sort_order: int
+    item_type_cd: str           # YN 또는 TEXT
     required_yn: str
     use_yn: str
     reg_dt: datetime

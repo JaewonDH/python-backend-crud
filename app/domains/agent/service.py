@@ -15,7 +15,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, ConflictException, ForbiddenException, NotFoundException
-from app.domains.agent.models import Agent, AgentConsent, AgentHistory, AgentMember
+from app.domains.agent.models import Agent, AgentConsent, AgentConsentValue, AgentHistory, AgentMember
 from app.domains.agent.repository import (
     AgentConsentRepository,
     AgentHistoryRepository,
@@ -38,16 +38,23 @@ class AgentService:
     async def create_agent(self, data: AgentCreate, user_id: str) -> Agent:
         """
         Agent 카드 신청:
-        1. TB_AGENT 생성 (PENDING)
+        1. TB_AGENT 생성 (PENDING) — 과제번호/팀이름/담당/사번/이름/그룹1/그룹2 포함
         2. TB_AGENT_MEMBER(AGENT_OWNER) 등록
         3. TB_AGENT_CONSENT 저장
         4. TB_APPROVAL_REQUEST(CREATE) 생성
         5. TB_AGENT_HISTORY(CREATE) 기록
         """
-        # Agent 생성
+        # Agent 생성 (신규 필드 포함)
         agent = Agent(
             agent_nm=data.agent_nm,
             agent_desc=data.agent_desc,
+            task_no=data.task_no,
+            team_nm=data.team_nm,
+            charge_nm=data.charge_nm,
+            emp_no=data.emp_no,
+            emp_nm=data.emp_nm,
+            group1_cd=data.group1_cd,   # 그룹1 단일 선택
+            group2_cd=data.group2_cd,   # 그룹2 단일 선택
             agent_status_cd="PENDING",
             owner_user_id=user_id,
             reg_user_id=user_id,
@@ -64,16 +71,25 @@ class AgentService:
             )
         )
 
-        # 동의 항목 저장
-        await self.consent_repo.save_all([
-            AgentConsent(
+        # 동의 항목 저장 (YN 타입: agree_yn / TEXT 타입: text_values 여러 개)
+        for c in data.consents:
+            consent = AgentConsent(
                 agent_id=agent.agent_id,
                 consent_item_id=c.consent_item_id,
-                agree_yn=c.agree_yn,
+                agree_yn=c.agree_yn,        # TEXT 타입은 None
                 user_id=user_id,
             )
-            for c in data.consents
-        ])
+            self.db.add(consent)
+            await self.db.flush()           # consent_id 확보 후 값 저장
+            for idx, val in enumerate(c.text_values, start=1):
+                self.db.add(
+                    AgentConsentValue(
+                        agent_consent_id=consent.agent_consent_id,
+                        text_value=val,
+                        sort_order=idx,
+                    )
+                )
+        await self.db.flush()
 
         # 승인 요청 생성 (approval 모델 직접 참조 — 생성만, 상태 변경 없음)
         from app.domains.approval.models import ApprovalRequest
@@ -130,7 +146,11 @@ class AgentService:
     async def update_agent(
         self, agent_id: str, data: AgentUpdate, user_id: str
     ) -> Agent:
-        """Agent 정보 수정 (OWNER 또는 DEV만)"""
+        """
+        Agent 정보 수정 (OWNER 또는 DEV만):
+        - 기본 정보(이름/설명/과제번호/팀이름/담당/사번/이름) 수정
+        - 그룹 수정: None이면 변경 없음, 리스트(빈 리스트 포함)이면 전체 교체
+        """
         agent = await self.repo.find_by_id(agent_id)
         if not agent:
             raise NotFoundException(f"Agent를 찾을 수 없습니다. agent_id={agent_id}")
@@ -138,10 +158,26 @@ class AgentService:
 
         before_nm, before_desc = agent.agent_nm, agent.agent_desc
 
+        # 기본 필드 수정
         if data.agent_nm is not None:
             agent.agent_nm = data.agent_nm
         if data.agent_desc is not None:
             agent.agent_desc = data.agent_desc
+        if data.task_no is not None:
+            agent.task_no = data.task_no
+        if data.team_nm is not None:
+            agent.team_nm = data.team_nm
+        if data.charge_nm is not None:
+            agent.charge_nm = data.charge_nm
+        if data.emp_no is not None:
+            agent.emp_no = data.emp_no
+        if data.emp_nm is not None:
+            agent.emp_nm = data.emp_nm
+        # 그룹 수정 (None이 아닌 경우에만 갱신)
+        if data.group1_cd is not None:
+            agent.group1_cd = data.group1_cd
+        if data.group2_cd is not None:
+            agent.group2_cd = data.group2_cd
         agent.upd_user_id = user_id
         await self.db.flush()
 
